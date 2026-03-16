@@ -1,0 +1,58 @@
+{
+  "name": "ai-refactor-tool",
+  "displayName": "AI Refactor Tool",
+  "description": "AI-powered code refactoring tool with dependency visualization",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:python",
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onCommand:ai-refactor.analyze"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ai-refactor.analyze",
+        "title": "AI Refactor: Analyze Code"
+      },
+      {
+        "command": "ai-refactor.showDependencies",
+        "title": "AI Refactor: Show Dependencies"
+      },
+      {
+        "command": "ai-refactor.refactor",
+        "title": "AI Refactor: Refactor Selection"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "ai-refactor.analyze",
+          "when": "editorHasSelection"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "node ./out/test/runTest.js"
+  },
+"devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.75.0",
+    "@vscode/test-electron": "^2.3.0",
+    "@types/mocha": "^10.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {}
+}
