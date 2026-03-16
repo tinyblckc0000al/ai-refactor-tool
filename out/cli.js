@@ -499,11 +499,247 @@ class MultiFileDependencyGraph {
         return files;
     }
 }
+/**
+ * Rename a function/variable/class in a Python file
+ */
+function renameInFile(filePath, oldName, newName, outputPath) {
+    const code = fs.readFileSync(filePath, 'utf-8');
+    const ast = parser.parse(code);
+    // Find all occurrences of the name
+    const locations = findNameLocations(ast, oldName);
+    if (locations.definitions.length === 0 && locations.references.length === 0) {
+        console.error(`❌ Name '${oldName}' not found in the code`);
+        process.exit(1);
+    }
+    console.log(`Found ${locations.definitions.length} definition(s) and ${locations.references.length} reference(s)`);
+    // Perform rename via Python script
+    const scriptFile = '/tmp/__rename__.py';
+    const pythonScript = `
+import ast
+
+file_path = "${filePath.replace('\\', '\\\\')}"
+old_name = "${oldName}"
+new_name = "${newName}"
+
+with open(file_path, 'r') as f:
+    source = f.read()
+
+tree = ast.parse(source)
+
+class RenameVisitor(ast.NodeTransformer):
+    def __init__(self, old_name, new_name):
+        self.old_name = old_name
+        self.new_name = new_name
+    
+    def visit_Name(self, node):
+        if node.id == self.old_name:
+            node.id = self.new_name
+        return node
+    
+    def visit_FunctionDef(self, node):
+        if node.name == self.old_name:
+            node.name = self.new_name
+        self.generic_visit(node)
+        return node
+    
+    def visit_AsyncFunctionDef(self, node):
+        if node.name == self.old_name:
+            node.name = self.new_name
+        self.generic_visit(node)
+        return node
+    
+    def visit_ClassDef(self, node):
+        if node.name == self.old_name:
+            node.name = self.new_name
+        self.generic_visit(node)
+        return node
+    
+    def visit_Attribute(self, node):
+        if isinstance(node.value, ast.Name):
+            if node.value.id == self.old_name:
+                node.value.id = self.new_name
+        self.generic_visit(node)
+        return node
+
+transformer = RenameVisitor(old_name, new_name)
+new_tree = transformer.visit(tree)
+ast.fix_missing_locations(new_tree)
+new_source = ast.unparse(new_tree)
+
+print(new_source, end='')
+`;
+    fs.writeFileSync(scriptFile, pythonScript, 'utf-8');
+    const newSource = (0, child_process_1.execSync)(`python3 "${scriptFile}"`, { encoding: 'utf-8' });
+    const output = outputPath || filePath;
+    // Backup original if overwriting
+    if (!outputPath) {
+        const backupPath = filePath + '.bak';
+        fs.writeFileSync(backupPath, code, 'utf-8');
+        console.log(`📦 Backed up original to: ${backupPath}`);
+    }
+    fs.writeFileSync(output, newSource, 'utf-8');
+    console.log(`✅ Renamed '${oldName}' -> '${newName}'`);
+    console.log(`📁 Saved to: ${output}`);
+}
+/**
+ * Find all locations of a name in AST
+ */
+function findNameLocations(ast, name) {
+    const locations = { definitions: [], references: [] };
+    const traverse = (node) => {
+        if ((node.type === 'FunctionDef' || node.type === 'AsyncFunctionDef') && node.name === name) {
+            locations.definitions.push({ type: 'function', line: node.line, name });
+        }
+        if (node.type === 'ClassDef' && node.name === name) {
+            locations.definitions.push({ type: 'class', line: node.line, name });
+        }
+        if (node.type === 'Name' && node.name === name) {
+            locations.references.push({ type: 'name', line: node.line });
+        }
+        if (node.children) {
+            for (const child of node.children) {
+                traverse(child);
+            }
+        }
+    };
+    traverse(ast);
+    return locations;
+}
+/**
+ * Extract a variable from a specific line
+ */
+function extractVariable(filePath, varName, targetLine, outputPath) {
+    const code = fs.readFileSync(filePath, 'utf-8');
+    // Use Python to perform the extraction
+    const scriptFile = '/tmp/__extract__.py';
+    const pythonScript = `
+import ast
+import sys
+
+file_path = "${filePath.replace('\\', '\\\\')}"
+var_name = "${varName}"
+target_line = ${targetLine}
+
+with open(file_path, 'r') as f:
+    source = f.read()
+
+lines = source.split('\n')
+
+tree = ast.parse(source)
+
+class AssignFinder(ast.NodeVisitor):
+    def __init__(self, line_no):
+        self.line_no = line_no
+        self.assignment = None
+    
+    def visit_Assign(self, node):
+        if node.lineno == self.line_no:
+            if node.targets and isinstance(node.targets[0], ast.Name):
+                self.assignment = {
+                    'type': 'Assign',
+                    'var': node.targets[0].id,
+                    'value': ast.unparse(node.value),
+                }
+        self.generic_visit(node)
+    
+    def visit_AnnAssign(self, node):
+        if node.lineno == self.line_no:
+            if isinstance(node.target, ast.Name):
+                self.assignment = {
+                    'type': 'AnnAssign',
+                    'var': node.target.id,
+                    'value': ast.unparse(node.value) if node.value else None,
+                    'annotated': True,
+                    'annotation': ast.unparse(node.annotation) if node.annotation else None
+                }
+        self.generic_visit(node)
+
+finder = AssignFinder(target_line)
+finder.visit(tree)
+
+if not finder.assignment:
+    print(f"Error: Line {target_line} is not a valid assignment statement", file=sys.stderr)
+    sys.exit(1)
+
+assignment = finder.assignment
+original_var = assignment['var']
+value_expr = assignment['value']
+
+target_content = lines[target_line - 1]
+target_indent = len(target_content) - len(target_content.lstrip())
+indent_str = ' ' * target_indent
+
+class DefFinder(ast.NodeVisitor):
+    def __init__(self, target_line):
+        self.target_line = target_line
+        self.containing_def = None
+    
+    def visit_FunctionDef(self, node):
+        if node.lineno <= self.target_line:
+            self.containing_def = ('function', node.lineno)
+        self.generic_visit(node)
+    
+    def visit_AsyncFunctionDef(self, node):
+        if node.lineno <= self.target_line:
+            self.containing_def = ('function', node.lineno)
+        self.generic_visit(node)
+    
+    def visit_ClassDef(self, node):
+        if node.lineno <= self.target_line:
+            self.containing_def = ('class', node.lineno)
+        self.generic_visit(node)
+
+def_finder = DefFinder(target_line)
+def_finder.visit(tree)
+
+insert_pos = def_finder.containing_def[1] if def_finder.containing_def else 0
+
+for i in range(insert_pos, len(lines)):
+    if lines[i].strip():
+        insert_pos = i + 1
+        break
+
+if assignment.get('annotated'):
+    new_var_line = f"{indent_str}{var_name}: {assignment['annotation']} = {value_expr}"
+else:
+    new_var_line = f"{indent_str}{var_name} = {value_expr}"
+
+new_target_line = f"{indent_str}{original_var} = {var_name}"
+
+new_lines = lines[:insert_pos]
+if insert_pos > 0 and new_lines and new_lines[-1].strip():
+    new_lines.append('')
+new_lines.append(new_var_line)
+new_lines.append('')
+new_lines.extend(lines[insert_pos:target_line - 1])
+new_lines.append(new_target_line)
+new_lines.extend(lines[target_line:])
+
+print('\n'.join(new_lines), end='')
+`;
+    fs.writeFileSync(scriptFile, pythonScript, 'utf-8');
+    try {
+        const newSource = (0, child_process_1.execSync)(`python3 "${scriptFile}"`, { encoding: 'utf-8' });
+        const output = outputPath || filePath;
+        if (!outputPath) {
+            const backupPath = filePath + '.bak';
+            fs.writeFileSync(backupPath, code, 'utf-8');
+            console.log(`📦 Backed up original to: ${backupPath}`);
+        }
+        fs.writeFileSync(output, newSource, 'utf-8');
+        console.log(`✅ Extracted variable '${varName}' (line ${targetLine})`);
+        console.log(`📁 Saved to: ${output}`);
+    }
+    catch (error) {
+        console.error(`❌ Extraction failed: ${error}`);
+        process.exit(1);
+    }
+}
 // CLI
 const args = process.argv.slice(2);
 if (args.length === 0) {
     console.log(`
-🔧 Code Refactor AI Tool - CLI
+🔧 AI Refactor Tool - CLI
 
 Usage: node cli.js <command> [options]
 
@@ -511,15 +747,20 @@ Commands:
   analyze <dir>   Analyze Python project dependencies
   circular <dir>  Find circular dependencies
   graph <file>    Generate dependency graph (text/mermaid)
+  rename <file> <old> <new>  Rename function/variable/class
+  extract <file> <var> <line>  Extract expression to variable
   
 Options:
   --graph[=format]   Output dependency graph (format: text|mermaid, default: mermaid)
   --filter=<module>  Filter by specific module
+  -o, --output       Output file path
   
 Example:
   node cli.js analyze ./test_sample.py
   node cli.js analyze ./my_project --graph=mermaid
   node cli.js graph ./test_sample.py
+  node cli.js rename sample.py calculate compute
+  node cli.js extract sample.py new_var 10
     `.trim());
     process.exit(1);
 }
@@ -632,9 +873,5 @@ else if (command === 'circular') {
         console.error('Error:', error);
         process.exit(1);
     }
-}
-else {
-    console.log(`Unknown command: ${command}`);
-    process.exit(1);
 }
 //# sourceMappingURL=cli.js.map
