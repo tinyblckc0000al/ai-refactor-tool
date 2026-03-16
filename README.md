@@ -2,13 +2,15 @@
 
 > VSCode 扩展：AI 驱动的代码重构工具
 
-## 功能
+## 功能列表（完整）
 
-- ✅ Python AST 解析（使用 Python 内置 ast 模块）
-- ✅ 依赖图提取（导入、函数调用、类继承关系）
-- ✅ Mermaid 可视化
-- ✅ CLI 支持（`--graph` 输出 Mermaid）
-- ⏳ AI 重写（待接入 Codex/Gemini）
+| 命令 | 功能 | 说明 |
+|------|------|------|
+| `analyze` | 分析 Python 代码结构 | AST 解析，展示函数/类/导入 |
+| `graph` | 依赖图 | Mermaid 格式输出 |
+| `circular` | 循环依赖检测 | 检测模块间循环引用 |
+| `rename` | 重命名 | AI 驱动重命名函数/变量/类 |
+| `extract` | 提取变量 | AI 驱动提取表达式为变量 |
 
 ## 快速开始
 
@@ -37,6 +39,12 @@ node cli.js analyze ./my_project --graph
 
 # 查找循环依赖
 node cli.js circular ./my_project
+
+# 重命名函数/变量/类
+node cli.js rename ./my_project old_name new_name
+
+# 提取变量（AI 驱动）
+node cli.js extract ./my_project --expression "x + y"
 ```
 
 ### VSCode 扩展
@@ -72,10 +80,10 @@ ai-refactor-tool/
 
 ## 状态
 
-**Phase 1: MVP** - 完成 90%
+**Phase 1: MVP** - ✅ 完成
 - [x] VSCode 脚手架
 - [x] Python AST 解析
 - [x] 依赖图提取
 - [x] Mermaid 可视化
 - [x] CLI 支持
-- [ ] AI 重写（Phase 2）
+- [x] AI 重写（rename/extract）

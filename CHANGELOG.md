@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-03-16
+
+### Added
+- **rename** 命令 - AI 驱动的重命名（函数/变量/类）
+- **extract** 命令 - AI 驱动的变量提取
+- 更新 README 添加新功能说明
+
+---
+
 ## [0.1.0] - 2025-03-16
 
 ### Added
